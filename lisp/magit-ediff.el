@@ -459,10 +459,10 @@ FILE must be relative to the top directory of the repository."
     (let ((beg (ediff-get-diff-posn 'C 'beg region-num))
           (end (ediff-get-diff-posn 'C 'end region-num))
           (pattern ediff-combination-pattern) ret)
+      (goto-char beg)
       (ediff-with-current-buffer ediff-buffer-C
         (while pattern
-          (goto-char beg)
-          (search-forward (pop pattern) end 'noerror)
+          (search-forward (pop pattern) end t)
           (--when-let (match-beginning 0)
             (setq ret (nconc ret (list it (match-end 0)))))
           (pop pattern)))
