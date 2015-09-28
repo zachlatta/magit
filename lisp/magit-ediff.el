@@ -440,7 +440,7 @@ FILE must be relative to the top directory of the repository."
 ;; ediff-combine-diffs, and ediff-merge-changed-from-default-p
 ;;
 (defun ediff-get-combined-region (n)
-  (let ((pattern ediff-combination-pattern) ret)
+  (let (ret (pattern ediff-combination-pattern))
     (while pattern
       (let ((delim (pop pattern))
             (spec  (pop pattern)))
@@ -456,17 +456,38 @@ FILE must be relative to the top directory of the repository."
   (when (and ediff-merge-job
              (--when-let (ediff-get-state-of-diff region-num 'C)
                (string-match (regexp-quote "(A+B)") it)))
-    (let ((beg (ediff-get-diff-posn 'C 'beg region-num))
-          (end (ediff-get-diff-posn 'C 'end region-num))
-          (pattern ediff-combination-pattern) ret)
+    (cl-destructuring-bind (beg . end)
+        (ediff-get-diff-posn 'C nil region-num)
       (goto-char beg)
-      (ediff-with-current-buffer ediff-buffer-C
-        (while pattern
-          (search-forward (pop pattern) end t)
-          (--when-let (match-beginning 0)
-            (setq ret (nconc ret (list it (match-end 0)))))
-          (pop pattern)))
-      ret)))
+      (let (ret (pattern ediff-combination-pattern))
+        (ediff-with-current-buffer ediff-buffer-C
+          (while pattern
+            (search-forward (pop pattern) end t)
+            (--when-let (match-beginning 0)
+              (setq ret (nconc ret (list it (match-end 0)))))
+            (pop pattern)))
+        ret))))
+
+(defun ediff-get-diff-posn (buf-type pos &optional n control-buf)
+  (unless control-buf
+    (setq control-buf (current-buffer)))
+  (let (diff-overlay)
+    (ediff-with-current-buffer control-buf
+      (unless n
+        (setq n ediff-current-difference))
+      (when (or (< n 0) (>= n ediff-number-of-differences))
+        (if (> ediff-number-of-differences 0)
+            (error ediff-BAD-DIFF-NUMBER
+                   this-command (1+ n) ediff-number-of-differences)
+          (error ediff-NO-DIFFERENCES)))
+      (setq diff-overlay (ediff-get-diff-overlay n buf-type)))
+    (unless (ediff-buffer-live-p (ediff-overlay-buffer diff-overlay))
+      (error ediff-KILLED-VITAL-BUFFER))
+    (pcase pos
+      (`beg (ediff-overlay-start diff-overlay))
+      (`end (ediff-overlay-end diff-overlay))
+      (_ (cons (ediff-overlay-start diff-overlay)
+               (ediff-overlay-end diff-overlay))))))
 
 ;;; magit-ediff.el ends soon
 (provide 'magit-ediff)
