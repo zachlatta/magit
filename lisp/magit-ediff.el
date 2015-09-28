@@ -426,6 +426,48 @@ FILE must be relative to the top directory of the repository."
 (defun magit-ediff-restore-previous-winconf ()
   (set-window-configuration magit-ediff-previous-winconf))
 
+;; (setq ediff-combination-pattern
+;;       '("<<<<<<< variant A" A
+;;         ">>>>>>> variant B" B
+;;         "####### Ancestor" Ancestor
+;;         "======= end"))
+
+;; Cleaned up version of the functions in ediff-merg.el
+;; (Yes, I also removed the error handling.)
+;; (And no, so far I have not tested this at all.)
+
+;; Used by ediff-set-state-of-diff-in-all-buffers,
+;; ediff-combine-diffs, and ediff-merge-changed-from-default-p
+;;
+(defun ediff-get-combined-region (n)
+  (let ((pattern ediff-combination-pattern) ret)
+    (while pattern
+      (let ((delim (pop pattern))
+            (spec  (pop pattern)))
+        (when (ignore-errors
+                (ediff-get-region-contents n spec ediff-control-buffer))
+          (setq ret (concat ret delim "\n"))))
+      (unless (cdr pattern)
+        (setq reg (concat ret (pop pattern) "\n"))))))
+
+;; Used by ediff-make-fine-diffs and ediff-set-fine-overlays-in-one-buffer
+;;
+(defun ediff-looks-like-combined-merge (region-num)
+  (when (and ediff-merge-job
+             (--when-let (ediff-get-state-of-diff region-num 'C)
+               (string-match (regexp-quote "(A+B)") it)))
+    (let ((beg (ediff-get-diff-posn 'C 'beg region-num))
+          (end (ediff-get-diff-posn 'C 'end region-num))
+          (pattern ediff-combination-pattern) ret)
+      (ediff-with-current-buffer ediff-buffer-C
+        (while pattern
+          (goto-char beg)
+          (search-forward (pop pattern) end 'noerror)
+          (--when-let (match-beginning 0)
+            (setq ret (nconc ret (list it (match-end 0)))))
+          (pop pattern)))
+      ret)))
+
 ;;; magit-ediff.el ends soon
 (provide 'magit-ediff)
 ;; Local Variables:
