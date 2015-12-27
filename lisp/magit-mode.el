@@ -38,10 +38,8 @@
 ;; For `magit-xref-insert-buttons' from `magit'
 (defvar magit-diff-show-xref-buttons)
 (defvar magit-revision-show-xref-buttons)
-;; For `magit-revert-buffers'
-(declare-function magit-blame-mode 'magit-blame)
-(defvar magit-blame-mode)
 
+(require 'autorevert)
 (require 'format-spec)
 (require 'help-mode)
 
@@ -175,82 +173,6 @@ displayed.  Otherwise fall back to regular region highlighting."
   :package-version '(magit . "2.1.0")
   :group 'magit-modes
   :type 'hook)
-
-(defvar magit-revert-buffers-timer nil)
-
-(defun magit-revert-buffers-set-timer ()
-  (when (timerp magit-revert-buffers-timer)
-    (cancel-timer magit-revert-buffers-timer))
-  (setq magit-revert-buffers-timer
-        (and (boundp 'magit-revert-buffers)
-             (numberp magit-revert-buffers)
-             (run-with-timer 0 (abs magit-revert-buffers)
-                             'magit-revert-buffers-async))))
-
-(defcustom magit-revert-buffers 'usage
-  "How file-visiting buffers in the current repository are reverted.
-
-After running certain commands, after refreshing the current
-Magit buffer, unmodified buffers visiting files belonging to
-the current repository may optionally be reverted.
-
-`nil'     Don't revert any buffers.
-
-`ask'     List the buffers which might potentially have to be
-          reverted and ask the user whether she wants to revert
-          them.  If so, then do it synchronously.
-
-`t'       Revert the buffers synchronously, mentioning each one
-          as it is being reverted and then also show a summary.
-
-`usage'   Like `t' but include usage information in the summary.
-          This is the default so that users come here and pick
-          what is right for them.
-
-`silent'  Revert the buffers synchronously and be quiet about it.
-          This (or a negative number) is the recommended setting,
-          because for the other values the revert messages might
-          prevent you from seeing other, more important, messages
-          in the echo area.
-
-NUMBER    An integer or float.  Revert the buffers asynchronously.
-          If NUMBER is positive, then mention each buffer as it is
-          being reverted.  If it is negative, then be quiet about
-          it.  If user input arrives, then stop reverting.  After
-          (the absolute value of) NUMBER seconds resume reverting."
-  :package-version '(magit . "2.1.0")
-  :group 'magit
-  :type '(choice
-          (const :tag "Don't revert" nil)
-          (const :tag "Ask whether to revert" ask)
-          (const :tag "Revert synchronously" t)
-          (const :tag "Revert synchronously but in silence" silent)
-          (const :tag "Revert synchronously with usage information" usage)
-          (integer :tag "Revert asynchronously (interval in seconds)"))
-  :set (lambda (var val)
-         (set-default var val)
-         (magit-revert-buffers-set-timer)))
-
-(defcustom magit-after-revert-hook '(magit-refresh-vc-mode-line)
-  "Normal hook for `magit-revert-buffer' to run after reverting.
-
-This hook is only run for buffers that were actually reverted.
-For other buffers `magit-not-reverted-hook' is run instead."
-  :package-version '(magit . "2.1.0")
-  :group 'magit-modes
-  :type 'hook
-  :options '(magit-refresh-vc-mode-line))
-
-(defcustom magit-not-reverted-hook '(magit-refresh-vc-mode-line)
-  "Normal hook for `magit-revert-buffer' to run instead of reverting.
-
-This hook is only run for buffers which might have been reverted
-but were not actually reverted, because that was not necessary.
-For other buffers `magit-after-revert-hook' is run instead."
-  :package-version '(magit . "2.1.0")
-  :group 'magit-modes
-  :type 'hook
-  :options '(magit-refresh-vc-mode-line))
 
 (defcustom magit-save-repository-buffers t
   "Whether to save file-visiting buffers when appropriate.
@@ -724,11 +646,7 @@ window."
   "Refresh some buffers belonging to the current repository.
 
 Refresh the current buffer if its major mode derives from
-`magit-mode', and refresh the corresponding status buffer.
-
-If option `magit-revert-buffers' call for it, then also revert
-all unmodified buffers that visit files being tracked in the
-current repository."
+`magit-mode', and refresh the corresponding status buffer."
   (interactive)
   (unless inhibit-magit-refresh
     (run-hooks 'magit-pre-refresh-hook)
@@ -737,8 +655,7 @@ current repository."
               (derived-mode-p 'magit-status-mode))
       (--when-let (magit-mode-get-buffer 'magit-status-mode)
         (with-current-buffer it
-          (magit-refresh-buffer))))
-    (magit-revert-buffers)))
+          (magit-refresh-buffer))))))
 
 (defun magit-refresh-all ()
   "Refresh all buffers belonging to the current repository.
@@ -749,8 +666,7 @@ Also always revert all unmodified buffers that visit files being
 tracked in the current repository."
   (interactive)
   (dolist (buffer (magit-mode-get-buffers))
-    (with-current-buffer buffer (magit-refresh-buffer)))
-  (magit-revert-buffers t))
+    (with-current-buffer buffer (magit-refresh-buffer))))
 
 (defvar-local magit-refresh-start-time nil)
 
@@ -813,126 +729,104 @@ tracked in the current repository."
                                                 beg (line-end-position))))
                                 (t t)))))))))
 
+;;; Revert File Buffers
 
-(defvar inhibit-magit-revert nil)
-(defvar magit-revert-buffers-backlog nil)
+(defcustom magit-auto-revert-tracked-only t
+  "Whether `magit-auto-revert-mode' only reverts tracked files."
+  :package-version '(magit . "2.4.0")
+  :group 'magit
+  :type 'boolean
+  :set (lambda (var val)
+         (set var val)
+         (when (bound-and-true-p magit-auto-revert-mode)
+           (magit-auto-revert-mode -1)
+           (magit-auto-revert-mode))))
 
-(defun magit-revert-buffers (&optional force)
-  "Revert unmodified file-visiting buffers of the current repository.
+(defun magit-turn-on-auto-revert-mode-if-desired (&optional file)
+  (when (bound-and-true-p magit-auto-revert-mode)
+    (if file
+        (--when-let (find-buffer-visiting file)
+          (with-current-buffer it
+            (magit-turn-on-auto-revert-mode-if-desired)))
+      (when (and buffer-file-name
+                 (magit-toplevel)
+                 (or (not magit-auto-revert-tracked-only)
+                     (magit-file-tracked-p buffer-file-name)))
+        (auto-revert-mode)))))
 
-If either `magit-revert-buffers' is non-nil and `inhibit-magit-revert'
-is nil, or if optional FORCE is non-nil; then revert all unmodified
-buffers that visit files being tracked in the current repository.
+(defvar magit-auto-revert-mode-lighter "")
 
-When called interactively then the revert is forced."
-  (interactive (list t))
-  (when (or force (and magit-revert-buffers (not inhibit-magit-revert)))
-    (-when-let (topdir (magit-toplevel))
-      (let* ((tracked (magit-revision-files "HEAD"))
-             (buffers
-              (if (> (length tracked)
-                     (length (buffer-list)))
-                  (--filter
-                   (let ((file (buffer-file-name it)))
-                     (and file
-                          (equal (file-remote-p file)
-                                 (file-remote-p topdir))
-                          (file-in-directory-p file topdir)
-                          (member (file-relative-name file topdir) tracked)))
-                   (buffer-list))
-                (--mapcat
-                 (--when-let (find-buffer-visiting (expand-file-name it topdir))
-                   (list it))
-                 tracked))))
-        (when (and buffers
-                   (or force
-                       (not (eq magit-revert-buffers 'ask))
-                       (magit-confirm 'revert-buffer
-                         "Revert %s from visited file"
-                         "Revert %i buffers from visited files"
-                         (mapcar #'buffer-name buffers))))
-          (cond
-           ((numberp magit-revert-buffers)
-            (magit-revert-buffers-async buffers))
-           ((eq magit-revert-buffers 'silent)
-            (mapc #'magit-revert-buffer buffers))
-           (t
-            (let ((cnt (length buffers)))
-              (when (> cnt 0)
-                (message "Reverting (up to) %s file-visiting buffer(s)..." cnt)
-                (setq cnt (length (-non-nil (mapcar #'magit-revert-buffer
-                                                    buffers))))
-                (if (> cnt 0)
-                    (pcase magit-revert-buffers
-                      (`t
-                       (message "Reverting %s file-visiting buffer(s)...done" cnt))
-                      (`usage
-                       (message
-                        "Reverting %s file-visiting buffer(s)...done%s%s%s" cnt
-                        (substitute-command-keys
-                         "\n  This can be undone using `\\[undo]' in the ")
-                        "affected buffers\n  Customize behavior using `M-x "
-                        "customize-option RET magit-revert-buffers RET'"))
-                      ((or `nil `ask)
-                       (message "Reverting %s file-visiting buffer(s)...done%s"
-                                cnt (if force " (forced)" ""))))
-                  (message "(No buffers need to be reverted)")))))))))))
+;;;###autoload
+(define-globalized-minor-mode magit-auto-revert-mode auto-revert-mode
+  magit-turn-on-auto-revert-mode-if-desired
+  :package-version '(magit . "2.4.0")
+  :group 'magit)
+(put 'magit-auto-revert-mode 'function-documentation
+     "Toggle Magit Auto Revert mode.
+With a prefix argument ARG, enable Magit Auto Revert mode if ARG
+is positive, and disable it otherwise.  If called from Lisp,
+enable the mode if ARG is omitted or nil.
 
-(defun magit-revert-buffers-async (&optional buffers)
-  (setq buffers (nconc buffers (--filter (not (memq it buffers))
-                                         magit-revert-buffers-backlog)))
-  (while (and buffers (not (input-pending-p)))
-    (let ((buf (pop buffers)))
-      (when (buffer-live-p buf)
-        (with-current-buffer buf
-          (magit-revert-buffer buf)))))
-  (setq magit-revert-buffers-backlog buffers))
+Magit Auto Revert mode is a global minor mode that reverts
+buffers associated with a file that is located inside a Git
+repository when the file changes on disk.  Use `auto-revert-mode'
+to revert a particular buffer.  Or use `global-auto-revert-mode'
+to revert all file-visiting buffers, not just those that visit
+a file located inside a Git repository.
 
-(defun magit-revert-buffer (&optional buffer)
-  "Revert the current file-visiting buffer."
-  (let (ret)
-    (with-current-buffer (or buffer (current-buffer))
-      (if (and (file-readable-p buffer-file-name)
-               (not (verify-visited-file-modtime (current-buffer))))
-          (if magit-blame-mode
-              (progn (message "Reverting %s inhibited due to magit-blame-mode"
-                              buffer-file-name)
-                     (run-hooks 'magit-not-reverted-hook))
-            (if (or (eq magit-revert-buffers 'silent)
-                    (and (numberp magit-revert-buffers)
-                         (< magit-revert-buffers 0)))
-                (revert-buffer 'ignore-auto t t)
-              (message "Reverting buffer `%s'..." (buffer-name))
-              (revert-buffer 'ignore-auto t t)
-              (message "Reverting buffer `%s'...done" (buffer-name)))
-            (run-hooks 'magit-after-revert-hook)
-            (setq ret t))
-        (run-hooks 'magit-not-reverted-hook)))
-    ret))
+This global mode works by turning on the buffer-local mode
+`auto-revert-mode' at the time a buffer is first created.  The
+local mode is turned on if the visited file is being tracked in
+a Git repository at the time when the buffer is created.
 
-(add-hook 'git-commit-setup-hook #'magit-revert-buffers)
+If `magit-auto-revert-tracked-only' is non-nil (the default),
+then only tracked files are reverted.  But if you stage a
+previously untracked file using `magit-stage', then this mode
+notices that.
 
-(defun magit-refresh-vc-mode-line ()
-  "Update `vc-mode' which is displayed in the mode-line.
-Like `vc-mode-line' but simpler, more efficient, and less buggy."
-  (setq vc-mode
-        (if vc-display-status
-            (magit-with-toplevel
-              (let* ((rev (or (magit-get-current-branch)
-                              (magit-rev-parse "--short" "HEAD")))
-                     (msg (cl-letf (((symbol-function #'vc-working-revision)
-                                     (lambda (&rest _) rev)))
-                            (vc-default-mode-line-string
-                             'Git buffer-file-name))))
-                (propertize
-                 (concat " " msg)
-                 'mouse-face 'mode-line-highlight
-                 'help-echo (concat (get-text-property 0 'help-echo msg)
-                                    "\nCurrent revision: " rev
-                                    "\nmouse-1: Version Control menu")
-                 'local-map vc-mode-line-map)))
-          " Git"))
-  (force-mode-line-update))
+Unlike `global-auto-revert-mode', this mode never reverts any
+buffers that are not visiting files.
+
+This function calls the hook `magit-auto-revert-mode-hook'.
+It displays the text that `magit-auto-revert-mode-lighter'
+specifies in the mode line.")
+
+(defcustom magit-revert-buffers nil
+  "OBSOLETE variable.  Use `magit-auto-revert-mode' instead.
+
+This variable is deprecated in favor of either
+`magit-auto-revert-mode' or `global-auto-revert-mode'.
+
+If Magit detects, at startup or when it is loaded later, that
+`magit-revert-buffers' value is non-nil, then it sets it to nil
+and instead enables `magit-auto-revert-mode'.  If you have set
+`magit-revert-buffers' to a non-nil value using the Custom
+interface, then Magit can fix this permanently.  Otherwise it
+has to attempt to do this everytime you load Magit, and doing
+that might fail.
+
+Please remove all traces of `magit-revert-buffers' from your
+init file and instead enable one of the mentioned modes."
+  :package-version '(magit . "2.4.0")
+  :group 'magit
+  :type '(const :format "%{%t%}: %v\n" nil))
+
+(make-obsolete-variable
+ 'magit-revert-buffers
+ "use `magit-auto-revert-mode' or `global-auto-revert-mode' instead."
+ "Magit 2.4.0" 'set)
+
+(defun magit-revert-buffers--transitional-kludge ()
+  (when magit-revert-buffers
+    (if (get 'magit-revert-buffers 'saved-value)
+        (progn (put 'magit-revert-buffers 'saved-value nil)
+               (custom-save-all))
+      (message "`magit-revert-buffers' is obsolete")
+      (setq magit-revert-buffers nil))
+    (unless global-auto-revert-mode
+      (magit-auto-revert-mode))))
+
+;;; Save File Buffers
 
 (defvar disable-magit-save-buffers nil)
 

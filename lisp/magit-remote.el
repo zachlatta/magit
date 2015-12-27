@@ -159,7 +159,7 @@ the variable isn't already set."
 
 (defun magit-git-fetch (remote args)
   (run-hooks 'magit-credential-hook)
-  (magit-run-git-async-no-revert "fetch" remote args))
+  (magit-run-git-async "fetch" remote args))
 
 ;;;###autoload
 (defun magit-fetch-from-pushremote (args)
@@ -193,7 +193,7 @@ the variable isn't already set."
   "Fetch from all remotes."
   (interactive (list (magit-fetch-arguments)))
   (run-hooks 'magit-credential-hook)
-  (magit-run-git-async-no-revert "remote" "update" args))
+  (magit-run-git-async "remote" "update" args))
 
 ;;;###autoload
 (defun magit-fetch-all-prune ()
@@ -202,14 +202,14 @@ Prune remote tracking branches for branches that have been
 removed on the respective remote."
   (interactive)
   (run-hooks 'magit-credential-hook)
-  (magit-run-git-async-no-revert "remote" "update" "--prune"))
+  (magit-run-git-async "remote" "update" "--prune"))
 
 ;;;###autoload
 (defun magit-fetch-all-no-prune ()
   "Fetch from all remotes."
   (interactive)
   (run-hooks 'magit-credential-hook)
-  (magit-run-git-async-no-revert "remote" "update"))
+  (magit-run-git-async "remote" "update"))
 
 ;;; Pull
 
@@ -381,9 +381,8 @@ removed after restarting Emacs."
   (run-hooks 'magit-credential-hook)
   (-let [(remote . target)
          (magit-split-branch-name target)]
-    (magit-run-git-async-no-revert "push" "-v" args remote
-                                   (format "%s:refs/heads/%s"
-                                           branch target))))
+    (magit-run-git-async "push" "-v" args remote
+                         (format "%s:refs/heads/%s" branch target))))
 
 ;;;###autoload
 (defun magit-push-current-to-pushremote (args &optional push-remote)
@@ -497,7 +496,7 @@ If just one exists, use that without requiring confirmation."
   (interactive (list (magit-read-remote "Push matching branches to" nil t)
                      (magit-push-arguments)))
   (run-hooks 'magit-credential-hook)
-  (magit-run-git-async-no-revert "push" "-v" args remote ":"))
+  (magit-run-git-async "push" "-v" args remote ":"))
 
 ;;;###autoload
 (defun magit-push-tags (remote &optional args)
@@ -508,7 +507,7 @@ branch as default."
   (interactive (list (magit-read-remote "Push tags to remote" nil t)
                      (magit-push-arguments)))
   (run-hooks 'magit-credential-hook)
-  (magit-run-git-async-no-revert "push" remote "--tags" args))
+  (magit-run-git-async "push" remote "--tags" args))
 
 ;;;###autoload
 (defun magit-push-tag (tag remote &optional args)
@@ -518,7 +517,7 @@ branch as default."
      (list tag (magit-read-remote (format "Push %s to remote" tag) nil t)
            (magit-push-arguments))))
   (run-hooks 'magit-credential-hook)
-  (magit-run-git-async-no-revert "push" remote tag args))
+  (magit-run-git-async "push" remote tag args))
 
 ;;;###autoload
 (defun magit-push-implicitly (args)
@@ -543,7 +542,7 @@ what this command will do, the value it returns is displayed in
 the popup buffer."
   (interactive (list (magit-push-arguments)))
   (run-hooks 'magit-credential-hook)
-  (magit-run-git-async-no-revert "push" "-v" args))
+  (magit-run-git-async "push" "-v" args))
 
 (defun magit-push-implicitly--desc ()
   (let ((default (magit-get "push.default")))
@@ -593,7 +592,7 @@ To add this command to the push popup add this to your init file:
   (interactive (list (magit-read-remote "Push to remote")
                      (magit-push-arguments)))
   (run-hooks 'magit-credential-hook)
-  (magit-run-git-async-no-revert "push" "-v" args remote))
+  (magit-run-git-async "push" "-v" args remote))
 
 (defun magit-push-to-remote--desc ()
   (format "using %s\n" (propertize "git push <remote>" 'face 'bold)))
@@ -637,7 +636,7 @@ HEAD but not from the specified commit)."
                  range
                (format "%s~..%s" range range))))
          (magit-patch-arguments)))
-  (magit-run-git-no-revert "format-patch" range args))
+  (magit-run-git "format-patch" range args))
 
 ;;;###autoload
 (defun magit-request-pull (url start end)
@@ -656,8 +655,7 @@ is asked to pull.  START has to be reachable from that commit."
     (compose-mail)
     (setq default-directory dir))
   (message-goto-body)
-  (let ((inhibit-magit-revert t))
-    (magit-git-insert "request-pull" start url end))
+  (magit-git-insert "request-pull" start url end)
   (set-buffer-modified-p nil))
 
 ;;; magit-remote.el ends soon

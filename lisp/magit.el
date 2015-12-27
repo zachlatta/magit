@@ -1496,7 +1496,7 @@ With prefix, forces the rename even if NEW already exists.
            (magit-read-string-ns (format "Rename branch '%s' to" branch))
            current-prefix-arg)))
   (unless (string= old new)
-    (magit-run-git-no-revert "branch" (if force "-M" "-m") old new)))
+    (magit-run-git "branch" (if force "-M" "-m") old new)))
 
 ;;;;; Branch Variables
 
@@ -1556,9 +1556,8 @@ is the full reference of the upstream branch, on the remote."
                         (delete branch (magit-list-branch-names))
                         nil nil nil 'magit-revision-history)))))
   (if upstream
-      (magit-run-git-no-revert
-       "branch" (concat "--set-upstream-to=" upstream) branch)
-    (magit-run-git-no-revert "branch" "--unset-upstream" branch)))
+      (magit-run-git "branch" (concat "--set-upstream-to=" upstream) branch)
+    (magit-run-git "branch" "--unset-upstream" branch)))
 
 (defun magit-format-branch*merge/remote ()
   (let* ((branch (or (magit-get-current-branch) "<name>"))
@@ -2047,7 +2046,7 @@ defaulting to the tag at point.
   (interactive (list (--if-let (magit-region-values 'tag)
                          (magit-confirm t nil "Delete %i tags" it)
                        (magit-read-tag "Delete tag" t))))
-  (magit-run-git-no-revert "tag" "-d" tags))
+  (magit-run-git "tag" "-d" tags))
 
 (defun magit-tag-prune (tags remote-tags remote)
   "Offer to delete tags missing locally from REMOTE, and vice versa."
@@ -2071,8 +2070,7 @@ defaulting to the tag at point.
   (when tags
     (magit-call-git "tag" "-d" tags))
   (when remote-tags
-    (magit-run-git-async-no-revert
-     "push" remote (--map (concat ":" it) remote-tags))))
+    (magit-run-git-async "push" remote (--map (concat ":" it) remote-tags))))
 
 ;;;; Notes
 
@@ -2172,12 +2170,11 @@ of Git's `note' command, default to operate on that ref."
                                     it)))
          current-prefix-arg))
   (if ref
-      (magit-run-git-no-revert "config" (and global "--global") "core.notesRef"
-                               (if (string-prefix-p "refs/" ref)
-                                   ref
-                                 (concat "refs/notes/" ref)))
-    (magit-run-git-no-revert "config" (and global "--global")
-                             "--unset" "core.notesRef")))
+      (magit-run-git "config" (and global "--global") "core.notesRef"
+                     (if (string-prefix-p "refs/" ref)
+                         ref
+                       (concat "refs/notes/" ref)))
+    (magit-run-git "config" (and global "--global") "--unset" "core.notesRef")))
 
 (defun magit-notes-set-display-refs (refs &optional global)
   "Set notes refs to be display in addition to \"core.notesRef\".
@@ -2201,8 +2198,7 @@ the current repository."
   (magit-git-success "config" "--unset-all" global "notes.displayRef")
   (dolist (ref refs)
     (magit-call-git "config" "--add" global "notes.displayRef" ref))
-  (let ((inhibit-magit-revert t))
-    (magit-refresh)))
+  (magit-refresh))
 
 (defun magit-notes-read-args (prompt)
  (list (magit-read-branch-or-commit prompt)
@@ -3005,6 +3001,11 @@ doesn't find the executable, then consult the info node
 
 (define-obsolete-function-alias 'magit-insert-pull-branch-header
   'magit-insert-upstream-branch-header "Magit 2.4.0")
+
+(if after-init-time
+    (with-eval-after-load 'magit
+      (magit-revert-buffers--transitional-kludge))
+  (add-hook 'after-init-hook #'magit-revert-buffers--transitional-kludge t))
 
 (provide 'magit)
 

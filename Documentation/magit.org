@@ -647,7 +647,7 @@ refresh explicitly.
   such buffers.  If this is ~dontask~ then this is done without user
   intervention.  If it is ~t~ then the user has to confirm each save.
 
-** Automatic refresh and revert
+** Automatic refresh
 
 After running a command which may change the state of the current
 repository, the current Magit buffer and the corresponding status
@@ -661,51 +661,6 @@ noticeable delay in big repositories.  Other Magit buffers are not
 refreshed to keep the delay to a minimum and also because doing so can
 sometimes be undesirable.
 
-- User Option: magit-revert-buffers
-
-  This option controls if and how file-visiting buffers in the current
-  repository are reverted.
-
-  Unmodified buffers visiting files belonging to the current
-  repository may be reverted after refreshing the current Magit buffer
-  and after running certain other commands.
-
-  - ~nil~
-
-    Don't revert any buffers.
-
-  - ~ask~
-
-    List the buffers which might potentially have to be reverted and
-    ask the user whether she wants to revert them.  If so, then do it
-    synchronously.
-
-  - ~t~
-
-    Revert the buffers synchronously, mentioning each one as it is
-    being reverted and then also show a summary in the echo area.
-
-  - ~usage~
-
-    Like ~t~ but include usage information in the summary.  This is the
-    default so that users come here and pick what is right for them.
-
-  - ~silent~
-
-    Revert the buffers synchronously and be quiet about it.
-
-    This (or a negative number) is the recommended setting, because
-    for the other values the revert messages might prevent you from
-    seeing other, more important, messages in the echo area.
-
-  - NUMBER
-
-    An integer or float.  Revert the buffers asynchronously.  If
-    NUMBER is positive, then mention each buffer as it is being
-    reverted.  If it is negative, then be quiet about it.  If user
-    input arrives, then stop reverting.  After (the absolute value of)
-    NUMBER seconds resume reverting.
-
 Buffers can also be refreshed explicitly, which is useful in buffers
 that weren't current during the last refresh and after changes were
 made to the repository outside of Magit.
@@ -715,18 +670,11 @@ made to the repository outside of Magit.
   This command refreshes the current buffer if its major mode derives
   from ~magit-mode~ as well as the corresponding status buffer.
 
-  If the option ~magit-revert-buffers~ calls for it, then it also
-  reverts all unmodified buffers that visit files being tracked in the
-  current repository.
-
 - Key: G, magit-refresh-all
 
   This command refreshes all Magit buffers belonging to the current
   repository and also reverts all unmodified buffers that visit files
   being tracked in the current repository.
-
-  The file-visiting buffers are always reverted, even if
-  ~magit-revert-buffers~ is nil.
 
 - Function: magit-after-save-refresh-status
 
@@ -738,29 +686,38 @@ made to the repository outside of Magit.
   contents from scratch, which can be slow in large repositories.  If
   you are not satisfied with Magit's performance, then you should
   obviously not add this function to that hook.
-  
+
 - User Option: magit-refresh-buffer-hook
 
   This hook is run in each Magit buffer that was refreshed during the
   current refresh - normally the current buffer and the status buffer.
 
-- User Option: magit-after-revert-hook
+** Automatic revert
 
-  This hook is run in each file-visiting buffer belonging to the
-  current repository that was actually reverted during a refresh.
+When working with Git it is often desirable if file-visiting buffers
+are automatically reverted when the associated file changes on disk,
+by updating its content to match the content of the modified file.
+For example if you use an interactive rebase to correct a mistake you
+made in an earlier commit, then it would be nice if the first thing
+you had to do after rebase stopped at the commit were not having to
+answer the question "File changed on disk; really edit the buffer?".
 
-  Note that adding something here is very expensive.  If you
-  experience performance issues, you might want to check this hook, as
-  well as ~magit-not-reverted-hook~ and, if possible, remove some of the
-  functions added by third-party packages.
+Magit used to provide its own implementation for reverting buffers
+associated with a file located inside a Git repository.  But that
+implementation was inefficient, so Magit now relies on the generic
+implementation that is part of Emacs (implemented in ~autorevert.el~).
 
-- User Option: magit-not-reverted-hook
+If you want all file-visiting buffers to be automatically reverted
+when the accociated file changes, then enable ~global-auto-revert-mode~.
+Otherwise enable ~magit-auto-revert-mode~ which turns on the local minor
+mode ~auto-revert-mode~ in buffers associated with a file located inside
+a Git repository.
 
-  This hook is run in each file-visiting buffer belonging to the
-  current repository that was _not_ reverted during a refresh.  The file
-  was not reverted because it did not change, and so Magit does not
-  have to do anything.  This hook is intended for third-party
-  extensions that need to run some functions even on such files.
+If ~auto-revert-use-notify~ is non-nil (the default) then the reverting
+starts shortly after the file changes on disk, otherwise that may be
+delayed for up to ~auto-revert-interval~ seconds (five by default).  If
+for some reason you cannot rely on file notifications, then you should
+consider reverting at shorter intervals.
 
 ** Sections
 
@@ -4546,34 +4503,6 @@ can recover it from the there.  Option ~magit-delete-by-moving-to-trash~
 controls whether the system trash is used, which is the case by default.
 Nevertheless, ~trash~ isn't a member of ~magit-no-confirm~ - you
 might want to change that.
-
-Buffers visiting files tracked in the current repository are being
-refreshed before certain actions.  See [[*Automatic refresh and revert]].
-This isn't as risky as it might seem.  If a buffer is modified
-(i.e. it contains changes that haven't been saved yet), then
-Emacs/Magit would refuse to revert it.  If the buffer has been saved
-resulting in what is seen by Git as an uncommitted change, then Git in
-turn would refuse to carry out the action that would cause these
-changes to be lost.  Since Git doesn't do anything, the file doesn't
-change on disk, and Emacs/Magit has nothing to revert.
-
-However if you do modify some files, visit the respective files in
-Emacs, somehow discard the changes (not using Magit and probably even
-outside Emacs), and then expect the respective file-visiting buffers
-to retain the uncommitted changes, then the automatic reverting would
-actually be harmful.  In other words if you use file-visiting buffers
-as a sort of "staging area", then you should set ~magit-revert-buffers~
-to ~nil~.
-
-So far I have only heard from one user who uses such a workflow.  But
-because there might be some other users doing such things, and I don't
-want to be responsible for data loss, these reverts by default happen
-quite verbosely, allowing these few users to undo the reverts using
-the ~undo~ command and then disabling the automatic reverts for the
-future.  Most users should however keep automatic reverts turned on
-and instead configure it to be less verbose by setting
-~magit-revert-buffers~ to ~t~ or even ~silent~.  This option is mentioned
-again in the next section.
 
 *** Performance
 
