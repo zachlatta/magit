@@ -791,40 +791,30 @@ This function calls the hook `magit-auto-revert-mode-hook'.
 It displays the text that `magit-auto-revert-mode-lighter'
 specifies in the mode line.")
 
-(defcustom magit-revert-buffers nil
-  "OBSOLETE variable.  Use `magit-auto-revert-mode' instead.
+;; Disturb as few users as possible.
+;;;###autoload
+(define-obsolete-variable-alias 'magit-revert-buffers
+  'magit-auto-revert-mode "Magit 2.4.0")
+(defvar magit--run-auto-revert-kludge t)
+;; `magit.el' arranges for this to be called.
+(defun magit--auto-revert-kludge ()
+  (when magit--run-auto-revert-kludge
+    (setq magit--run-auto-revert-kludge nil)
+    (unless (booleanp magit-auto-revert-mode)
+      (setq magit-auto-revert-mode t))
+    (let ((saved (get 'magit-auto-revert-mode 'saved-value)))
+      (cond ((and saved (not (equal (car saved) magit-auto-revert-mode)))
+             (customize-save-variable 'magit-auto-revert-mode
+                                      magit-auto-revert-mode))
+            (magit-auto-revert-mode
+             (magit-auto-revert-mode))))))
 
-This variable is deprecated in favor of either
-`magit-auto-revert-mode' or `global-auto-revert-mode'.
-
-If Magit detects, at startup or when it is loaded later, that
-`magit-revert-buffers' value is non-nil, then it sets it to nil
-and instead enables `magit-auto-revert-mode'.  If you have set
-`magit-revert-buffers' to a non-nil value using the Custom
-interface, then Magit can fix this permanently.  Otherwise it
-has to attempt to do this everytime you load Magit, and doing
-that might fail.
-
-Please remove all traces of `magit-revert-buffers' from your
-init file and instead enable one of the mentioned modes."
-  :package-version '(magit . "2.4.0")
-  :group 'magit
-  :type '(const :format "%{%t%}: %v\n" nil))
-
-(make-obsolete-variable
- 'magit-revert-buffers
- "use `magit-auto-revert-mode' or `global-auto-revert-mode' instead."
- "Magit 2.4.0" 'set)
-
-(defun magit-revert-buffers--transitional-kludge ()
-  (when magit-revert-buffers
-    (if (get 'magit-revert-buffers 'saved-value)
-        (progn (put 'magit-revert-buffers 'saved-value nil)
-               (custom-save-all))
-      (message "`magit-revert-buffers' is obsolete")
-      (setq magit-revert-buffers nil))
-    (unless global-auto-revert-mode
-      (magit-auto-revert-mode))))
+(advice-add 'auto-revert-handler :around
+            'auto-revert-handler--magit-blame-mode)
+(defun auto-revert-handler--magit-blame-mode (fn)
+  "Do not revert if `magit-blame-mode' is enabled."
+  (unless magit-blame-mode
+    (funcall fn)))
 
 ;;; Save File Buffers
 

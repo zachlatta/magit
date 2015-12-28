@@ -3002,10 +3002,15 @@ doesn't find the executable, then consult the info node
 (define-obsolete-function-alias 'magit-insert-pull-branch-header
   'magit-insert-upstream-branch-header "Magit 2.4.0")
 
-(if after-init-time
-    (with-eval-after-load 'magit
-      (magit-revert-buffers--transitional-kludge))
-  (add-hook 'after-init-hook #'magit-revert-buffers--transitional-kludge t))
+(cl-eval-when (load eval)
+  (if after-init-time
+      ;; Delay running this to make sure that it runs after other
+      ;; code whose execution is delayed until after `magit' has
+      ;; been loaded, because that code might change the value of
+      ;; `magit-auto-revert-mode'/`magit-revert-buffers'.
+      (with-eval-after-load 'magit
+        (magit--auto-revert-kludge))
+    (add-hook 'after-init-hook #'magit--auto-revert-kludge t)))
 
 (provide 'magit)
 
